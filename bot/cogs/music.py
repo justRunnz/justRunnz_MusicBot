@@ -34,6 +34,11 @@ class PlayerIsAlreadyPaused(commands.CommandError):
 class PlayerIsAlreadyPlaying(commands.CommandError):
     pass
 
+class NoMoreTracks(commands.CommandError):
+    pass
+
+class NoPreviousTracks(commands.CommandError):
+    pass
 
 class Queue:
     def __init__(self):
@@ -180,6 +185,7 @@ class Player(wavelink.Player):
         except QueueIsEmpty:
             pass
 
+
 class Music(commands.Cog, wavelink.WavelinkMixin):
     def __init__(self,bot):
         self.bot = bot
@@ -310,6 +316,45 @@ class Music(commands.Cog, wavelink.WavelinkMixin):
             await ctx.send("The queue has already cleared ")
 
 
+
+    @commands.command(name="next", aliases=["skip","skp","sk"])
+    async def next_command(self, ctx):
+        player = self.get_player(ctx)
+
+        if not player.queue.upcoming:
+            raise NoMoreTracks
+
+        await player.stop()
+        await ctx.send("Playing next track in queue")
+
+    @next_command.error
+    async def next_command_error(self,ctx,exc):
+        if isinstance(exc,QueueIsEmpty):
+            await ctx.send("Cannot skip because the queue is empty")
+        elif isinstance(exc,NoMoreTracks):
+            await ctx.send("There are no more tracks in the queue to play")
+
+
+    @commands.command(name="previous")
+    async def previous_command(self, ctx):
+        player = self.get_player(ctx)
+
+        if not player.queue.history :
+            raise NoPreviousTracks
+
+        player.queue.position -= 2
+        await player.stop()
+        await ctx.send("Playing previous track in queue")
+
+
+    @previous_command.error
+    async def previous_command_error(self,ctx,exc):
+        if isinstance(exc,QueueIsEmpty):
+            await ctx.send("Cannot see the previous tracks because the queue is empty")
+        elif isinstance(exc, NoPreviousTracks):
+            await ctx.send("There are no more tracks in the queue to play")
+
+
     @commands.command(name = "clearqueue", aliases = ["clrqueue","clrq","cq"])
     async def clear_queue_command(self, ctx):
         player = self.get_player(ctx)
@@ -321,9 +366,6 @@ class Music(commands.Cog, wavelink.WavelinkMixin):
     @commands.command(name="queue", aliases=["q"])
     async def queue_command(self,ctx, show  : t.Optional[int] = 10):
         player = self.get_player(ctx)
-
-        # if player.queue.is_empty:
-        #     raise QueueIsEmpty
 
         embed = discord.Embed(
             title="Queue",
