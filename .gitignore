@@ -6,7 +6,7 @@ openjdk-13.0.2_linux-x64_bin/
 jdk-13.0.2/
 
 #vscode plugin theme
-.vscode
+.vscode/
 
 ### Python ###
 # Byte-compiled / optimized / DLL files
