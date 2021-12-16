@@ -7,8 +7,6 @@ from enum import Enum
 import discord
 import wavelink
 from discord.ext import commands
-from discord_slash import SlashCommand
-from bot import MusicBot
 
 
 URL_REGEX = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"
@@ -46,6 +44,22 @@ class NoPreviousTracks(commands.CommandError):
 
 class InvalidRepeatMode(commands.CommandError):
     pass
+
+class VolumeTooLow(commands.CommandError):
+    pass
+
+
+class VolumeTooHigh(commands.CommandError):
+    pass
+
+
+class MaxVolume(commands.CommandError):
+    pass
+
+
+class MinVolume(commands.CommandError):
+    pass
+
 
 class RepeatMode(Enum):
     NONE = 0
@@ -197,7 +211,7 @@ class Player(wavelink.Player):
         )
 
         embed.set_author(name="Query Results")
-        embed.set_footer(text=f"Invoked by {ctx.author.display_name}", icon_url=ctx.author.avatar_url)
+        embed.set_footer(text=f"Invoked by {ctx.author.display_name}")
 
 
         msg = await ctx.send(embed=embed)
@@ -247,7 +261,7 @@ class Music(commands.Cog, wavelink.WavelinkMixin):
     @wavelink.WavelinkMixin.listener("on_track_stuck")
     @wavelink.WavelinkMixin.listener("on_track_end")
     @wavelink.WavelinkMixin.listener("on_track_exception")
-    async def on_player_stop(self, node, payload):
+    async def on_player_stop(self, payload):
         if payload.player.queue.repeat_mode == RepeatMode.ONE:
             await payload.player.repeat_track()
         else:
@@ -315,7 +329,7 @@ class Music(commands.Cog, wavelink.WavelinkMixin):
             await ctx.send("Music resumed")
 
         else:
-            query = query.strip("")
+            query = query.strip(" ")
             if not re.match(URL_REGEX, query):
                 query = f"ytsearch:{query}"
 
@@ -361,7 +375,7 @@ class Music(commands.Cog, wavelink.WavelinkMixin):
 
 
 
-    @commands.command(name="next", aliases=["skip","skp","sk"])
+    @commands.command(name="next", aliases=["skip"])
     async def next_command(self, ctx):
         player = self.get_player(ctx)
 
@@ -426,16 +440,23 @@ class Music(commands.Cog, wavelink.WavelinkMixin):
         elif mode == "queue" or mode == "q":
             await ctx.send("RepeatMode  ➡️  Queue ...")
 
-
-
-    @commands.command(name = "clearqueue", aliases = ["clrqueue","clrq","cq"])
-    async def clear_queue_command(self, ctx):
+    @commands.command(name="restart")
+    async def restart_command(self, ctx):
         player = self.get_player(ctx)
-        player.queue.empty()
-        await ctx.send("The queue has been cleared")
+
+        if player.queue.is_empty:
+            raise QueueIsEmpty
+
+        await player.seek(0)
+        await ctx.send("Track restarted.")
+
+    @restart_command.error
+    async def restart_command_error(self, ctx, exc):
+        if isinstance(exc, QueueIsEmpty):
+            await ctx.send("There are no tracks in the queue.")
 
 
-    @commands.command(name="queue", aliases=["q"])
+    @commands.command(name="queue", aliases=["q"],value = "dfefezfzefez")
     async def queue_command(self,ctx, show  : t.Optional[int] = 10):
         player = self.get_player(ctx)
 
@@ -466,6 +487,121 @@ class Music(commands.Cog, wavelink.WavelinkMixin):
     async def queue_command_error(self, ctx, exc):
         if isinstance(exc, QueueIsEmpty):
             await ctx.send("The queue is currently empty.")
+
+    @commands.command(name = "clearqueue", aliases = [".clearq"])
+    async def clear_queue_command(self, ctx):
+        player = self.get_player(ctx)
+        player.queue.empty()
+        await ctx.send("The queue has been cleared")
+
+
+    @commands.command(name="playing", aliases=["np"])
+    async def playing_command(self, ctx):
+        player = self.get_player(ctx)
+
+        if not player.is_playing:
+            raise PlayerIsAlreadyPaused
+
+        embed = discord.Embed(
+            title="Now playing",
+            colour=ctx.author.colour,
+            timestamp=dt.datetime.utcnow(),
+        )
+        embed.set_author(name="Playback Information")
+        embed.set_footer(text=f"Requested by {ctx.author.display_name}", icon_url=ctx.author.avatar_url)
+        embed.add_field(name="Track title", value=player.queue.current_track.title, inline=False)
+        embed.add_field(name="Artist", value=player.queue.current_track.author, inline=False)
+
+        position = divmod(player.position, 60000)
+        length = divmod(player.queue.current_track.length, 60000)
+        embed.add_field(
+            name="Position",
+            value=f"{int(position[0])}:{round(position[1] / 1000):02}/{int(length[0])}:{round(length[1] / 1000):02}",
+            inline=False
+        )
+
+        await ctx.send(embed=embed)
+
+
+    @playing_command.error
+    async def playing_command_error(self, ctx, exc):
+        if isinstance(exc, PlayerIsAlreadyPaused):
+            await ctx.send("There is no track currently playing.")
+
+
+    @commands.command(name="skipto")
+    async def skipto_command(self, ctx, index: int):
+        player = self.get_player(ctx)
+
+        if player.queue.is_empty:
+            raise QueueIsEmpty
+
+        if not 0 <= index <= player.queue.length:
+            raise NoMoreTracks
+
+        player.queue.position = index - 2
+        await player.stop()
+        await ctx.send(f"Playing track in position {index}.")
+
+    @skipto_command.error
+    async def skipto_command_error(self, ctx, exc):
+        if isinstance(exc, QueueIsEmpty):
+            await ctx.send("There are no tracks in the queue.")
+        elif isinstance(exc, NoMoreTracks):
+            await ctx.send("That index is out of the bounds of the queue.")
+
+
+
+    @commands.group(name="volume", invoke_without_command=True)
+    async def volume_group(self, ctx, volume: int):
+        player = self.get_player(ctx)
+
+        if volume < 0:
+            raise VolumeTooLow
+
+        if volume > 150:
+            raise VolumeTooHigh
+
+        await player.set_volume(volume)
+        await ctx.send(f"Volume set to {volume:,}%")
+
+    @volume_group.error
+    async def volume_group_error(self, ctx, exc):
+        if isinstance(exc, VolumeTooLow):
+            await ctx.send("The volume must be 0% or above.")
+        elif isinstance(exc, VolumeTooHigh):
+            await ctx.send("The volume must be 150% or below.")
+
+    @volume_group.command(name="up" ,aliases=["+"])
+    async def volume_up_command(self, ctx):
+        player = self.get_player(ctx)
+
+        if player.volume == 150:
+            raise MaxVolume
+
+        await player.set_volume(value := min(player.volume + 10, 150))
+        await ctx.send(f"Volume set to {value:,}%")
+
+    @volume_up_command.error
+    async def volume_up_command_error(self, ctx, exc):
+        if isinstance(exc, MaxVolume):
+            await ctx.send("The player is already at max volume.")
+
+    @volume_group.command(name="down", aliases=["d","dw","-"])
+    async def volume_down_command(self, ctx):
+        player = self.get_player(ctx)
+
+        if player.volume == 0:
+            raise MinVolume
+
+        await player.set_volume(value := max(0, player.volume - 10))
+        await ctx.send(f"Volume set to {value:,}%")
+
+    @volume_down_command.error
+    async def volume_down_command_error(self, ctx, exc):
+        if isinstance(exc, MinVolume):
+            await ctx.send("The player is already at min volume.")
+
 
 def setup(bot):
     bot.add_cog(Music(bot))
