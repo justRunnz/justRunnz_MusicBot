@@ -1,14 +1,14 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-from discord import Embed, Member, NotFound, Object
-from discord.ext.commands import Cog, Greedy, Converter
-from discord.ext.commands import command, has_permissions, bot_has_permissions
+from discord import Member
 from discord.ext import commands
+from discord.ext.commands import Greedy
+from discord.ext.commands import command, has_permissions, bot_has_permissions
 
 
 class Mod(commands.Cog):
-    @command(name="clear", aliases=["purge","clr","cl"])
+    @command(name="clear", aliases=["purge", "clr", "cl"])
     @bot_has_permissions(manage_messages=True)
     @has_permissions(manage_messages=True)
     async def clear_messages(self, ctx, targets: Greedy[Member], limit: Optional[int] = 1):

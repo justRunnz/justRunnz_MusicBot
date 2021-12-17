@@ -1,10 +1,10 @@
 import asyncio
+import datetime as dt
 import time
 
 import discord
 from discord.ext.commands import Cog
 from discord.ext.commands import command
-import datetime as dt
 
 OPTIONS = {"❌": 0}
 
